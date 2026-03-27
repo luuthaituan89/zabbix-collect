@@ -119,43 +119,79 @@ class ZabbixManager:
 
     # --- CHỨC NĂNG 3: LATEST DATA & STATS ---
     def latest_data_stats(self):
-        host_name = input("Enter Host Name to check: ").strip()
+        host_name = input("Nhập tên Host cần kiểm tra: ").strip()
         hosts = self.zapi.host.get(filter={"name": host_name}, output=["hostid"])
-        if not hosts: return print("Host not found!")
+        if not hosts: return print("Không tìm thấy Host!")
 
+        # Lấy danh sách items và các tags để lọc theo Component
         items = self.zapi.item.get(hostids=hosts[0]['hostid'],
                                    output=["itemid", "name", "units", "value_type", "lastvalue"],
                                    selectTags=["tag", "value"])
 
         tags = sorted(list(set(t['value'] for i in items for t in i.get('tags', []) if t['tag'] == 'component')))
-        print("\nAvailable Components:", ", ".join(tags))
-        keyword = input("Enter component tag (e.g. CPU, Memory): ").lower().strip()
+        print("\nCác Component có sẵn:", ", ".join(tags))
+        keyword = input("Nhập component tag (VD: CPU, Memory): ").lower().strip()
 
         matched = [i for i in items if
                    any(t['value'].lower() == keyword for t in i.get('tags', []) if t['tag'] == 'component')]
-        if not matched: return print("No items found.")
+        if not matched: return print("Không tìm thấy item nào phù hợp.")
 
-        print("Select Time: 1. 1h  2. 1d  3. 7d  4. 30d")
-        t_choice = input("Choice: ").strip()
-        t_map = {"1": 3600, "2": 86400, "3": 86400 * 7, "4": 86400 * 30}
-        time_from = int(time.time()) - t_map.get(t_choice, 86400 * 30)
+        print("\nChọn khoảng thời gian:")
+        print("1. 1h   2. 12h   3. 24h   4. 7d   5. 30d")
+        t_choice = input("Lựa chọn (1-5): ").strip()
+
+        t_map = {
+            "1": 3600,  # 1h
+            "2": 43200,  # 12h
+            "3": 86400,  # 24h
+            "4": 604800,  # 7d
+            "5": 2592000  # 30d
+        }
+
+        seconds_range = t_map.get(t_choice, 3600)
+        time_from = int(time.time()) - seconds_range
+
+        # Quyết định chế độ truy vấn (Hybrid Logic)
+        use_history = seconds_range <= 86400
+        mode_str = "HISTORY (Chi tiết)" if use_history else "TRENDS (Tổng hợp)"
 
         table = PrettyTable(["ITEM NAME", "MIN", "AVG", "MAX", "LAST"])
+        table.title = f""
         table.align["ITEM NAME"] = "l"
 
         for item in matched:
             min_v, avg_v, max_v = "-", "-", "-"
+
+            # Chỉ xử lý các item dạng số (Float hoặc Integer)
             if item['value_type'] in ['0', '3']:
-                trends = self.zapi.trend.get(itemids=item['itemid'], time_from=time_from,
-                                             output=['value_min', 'value_avg', 'value_max'])
-                if trends:
-                    min_v = self.format_value(min([float(t['value_min']) for t in trends]), item['units'])
-                    max_v = self.format_value(max([float(t['value_max']) for t in trends]), item['units'])
-                    avg_v = self.format_value(statistics.mean([float(t['value_avg']) for t in trends]), item['units'])
+                if use_history:
+                    # TRUY VẤN HISTORY (Dữ liệu thô)
+                    data = self.zapi.history.get(
+                        itemids=item['itemid'],
+                        time_from=time_from,
+                        history=int(item['value_type']),
+                        output=['value']
+                    )
+                    if data:
+                        vals = [float(d['value']) for d in data]
+                        min_v = self.format_value(min(vals), item['units'])
+                        max_v = self.format_value(max(vals), item['units'])
+                        avg_v = self.format_value(statistics.mean(vals), item['units'])
+                else:
+                    # TRUY VẤN TRENDS (Dữ liệu theo giờ)
+                    data = self.zapi.trend.get(
+                        itemids=item['itemid'],
+                        time_from=time_from,
+                        output=['value_min', 'value_avg', 'value_max']
+                    )
+                    if data:
+                        min_v = self.format_value(min([float(t['value_min']) for t in data]), item['units'])
+                        max_v = self.format_value(max([float(t['value_max']) for t in data]), item['units'])
+                        avg_v = self.format_value(statistics.mean([float(t['value_avg']) for t in data]), item['units'])
 
             table.add_row([item['name'], min_v, avg_v, max_v, self.format_value(item['lastvalue'], item['units'])])
 
-        print(table)
+        print("\n", table)
 
 
 # --- MAIN MENU ---
