@@ -45,7 +45,7 @@ def get_zabbix_hosts_clean():
                     interface_str = f"{main_if['dns']}:{main_if['port']}"
 
                 # Availability Map (0: Unknown, 1: Available/ZBX, 2: Unavailable)
-                avail_map = {'0': 'Unknown', '1': 'ZBX', '2': 'Unavail'}
+                avail_map = {'0': 'Unknown', '1': 'ZBX', '2': 'Unavailable'}
                 availability_str = avail_map.get(str(main_if.get('available', '0')), 'Unknown')
 
             # --- Status (0: Enabled, 1: Disabled) ---
